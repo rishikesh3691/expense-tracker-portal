@@ -647,7 +647,7 @@ def get_settings():
 
 	# Load global portal settings for wizard
 	global_settings = {
-		"company_name": "BizAxl Inc.",
+		"company_name": "Bizaxl Inc.",
 		"tax_id": "",
 		"currency": "USD",
 		"fiscal_year_start": today(),
