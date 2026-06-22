@@ -1,0 +1,477 @@
+{% extends "templates/pages/portal_base.html" %}
+
+{% block title %}Dashboard - Expense Tracker Portal{% endblock %}
+
+{% block content %}
+{% raw %}
+<div class="space-y-8">
+	<!-- Loading State -->
+	<div v-if="loading" class="flex flex-col items-center justify-center py-20">
+		<div class="w-12 h-12 rounded-full border-4 border-brightBlue/20 border-t-brightBlue animate-spin mb-4"></div>
+		<span class="text-sm text-gray-400">Loading dashboard data...</span>
+	</div>
+
+	<template v-else>
+		<!-- Dashboard Filter Action Bar -->
+		<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 glass-panel p-4 rounded-2xl mb-6">
+			<div class="text-slate-800 font-extrabold text-sm flex items-center gap-1.5">
+				<i data-lucide="filter" class="w-4 h-4 text-brightBlue"></i>
+				<span>Dashboard Filters</span>
+			</div>
+			<div class="flex items-center gap-3 flex-wrap">
+				<!-- Category Filter -->
+				<select v-model="filters.category" @change="fetchStats" 
+						class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+					<option value="All">All Categories</option>
+					<option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+				</select>
+
+				<!-- Status Filter -->
+				<select v-model="filters.status" @change="fetchStats" 
+						class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+					<option value="All">All Statuses</option>
+					<option value="Pending">Pending</option>
+					<option value="Approved">Approved</option>
+					<option value="Rejected">Rejected</option>
+				</select>
+
+				<!-- Employee Filter (Admin only) -->
+				<select v-if="user.is_admin" v-model="filters.employee" @change="fetchStats" 
+						class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700 max-w-[160px]">
+					<option value="">All Employees</option>
+					<option v-for="emp in employees" :key="emp.user" :value="emp.user">{{ emp.employee_name }}</option>
+				</select>
+
+				<!-- Date Filter -->
+				<input type="date" v-model="filters.date" @change="fetchStats" 
+					   class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+			</div>
+		</div>
+
+		<!-- Stats Grid (Dynamic for Admin vs Employee) -->
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-6" :class="user.is_admin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'">
+			<!-- Card 1: Gross Submitted -->
+			<div class="glass-card p-6 rounded-2xl relative overflow-hidden">
+				<div class="absolute -right-4 -bottom-4 opacity-10">
+					<i data-lucide="banknote" class="w-24 h-24 text-slate-300"></i>
+				</div>
+				<div class="flex items-center justify-between mb-4">
+					<span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+						{{ user.is_admin ? 'Gross Submitted' : 'My Expenses' }}
+					</span>
+					<div class="w-8 h-8 rounded-lg bg-brightBlue/10 flex items-center justify-center">
+						<i data-lucide="banknote" class="w-4 h-4 text-brightBlue"></i>
+					</div>
+				</div>
+				<h2 class="text-3xl font-extrabold text-slate-800 mb-1">${{ formatAmount(stats.total_submitted) }}</h2>
+				<p class="text-xs text-slate-500">Total claimed amount</p>
+			</div>
+
+			<!-- Card 2: Pending Bills -->
+			<div class="glass-card p-6 rounded-2xl relative overflow-hidden">
+				<div class="absolute -right-4 -bottom-4 opacity-10">
+					<i data-lucide="clock" class="w-24 h-24 text-slate-300"></i>
+				</div>
+				<div class="flex items-center justify-between mb-4">
+					<span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending Bills</span>
+					<div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+						<i data-lucide="clock" class="w-4 h-4 text-amber-500"></i>
+					</div>
+				</div>
+				<h2 class="text-3xl font-extrabold text-amber-600 mb-1">${{ formatAmount(stats.pending_amount) }}</h2>
+				<p class="text-xs text-slate-500">{{ stats.pending_count }} bills pending</p>
+			</div>
+
+			<!-- Card 3: Approved Bills -->
+			<div class="glass-card p-6 rounded-2xl relative overflow-hidden">
+				<div class="absolute -right-4 -bottom-4 opacity-10">
+					<i data-lucide="check-circle" class="w-24 h-24 text-slate-300"></i>
+				</div>
+				<div class="flex items-center justify-between mb-4">
+					<span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Approved Bills</span>
+					<div class="w-8 h-8 rounded-lg bg-mintGreen/10 flex items-center justify-center">
+						<i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
+					</div>
+				</div>
+				<h2 class="text-3xl font-extrabold text-emerald-600 mb-1">${{ formatAmount(stats.approved_amount) }}</h2>
+				<p class="text-xs text-slate-500">{{ stats.approved_count }} bills approved</p>
+			</div>
+
+			<!-- Card 4: Avoided Bills -->
+			<div class="glass-card p-6 rounded-2xl relative overflow-hidden">
+				<div class="absolute -right-4 -bottom-4 opacity-10">
+					<i data-lucide="x-circle" class="w-24 h-24 text-slate-300"></i>
+				</div>
+				<div class="flex items-center justify-between mb-4">
+					<span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Avoided Bills</span>
+					<div class="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center">
+						<i data-lucide="x-circle" class="w-4 h-4 text-rose-500"></i>
+					</div>
+				</div>
+				<h2 class="text-3xl font-extrabold text-rose-600 mb-1">${{ formatAmount(stats.rejected_amount) }}</h2>
+				<p class="text-xs text-slate-500">{{ stats.rejected_count }} bills avoided</p>
+			</div>
+
+			<!-- Card 5: Employees Count (Admin Only) -->
+			<div class="glass-card p-6 rounded-2xl relative overflow-hidden" v-if="user.is_admin">
+				<div class="absolute -right-4 -bottom-4 opacity-10">
+					<i data-lucide="users" class="w-24 h-24 text-slate-300"></i>
+				</div>
+				<div class="flex items-center justify-between mb-4">
+					<span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Employees</span>
+					<div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+						<i data-lucide="users" class="w-4 h-4 text-emerald-600"></i>
+					</div>
+				</div>
+				<h2 class="text-3xl font-extrabold text-slate-800 mb-1">{{ stats.employee_count }}</h2>
+				<p class="text-xs text-slate-500">Total active personnel</p>
+			</div>
+		</div>
+
+		<!-- Overview Section Dividers & Highlights -->
+		<div class="h-[2px] progress-gradient rounded-full"></div>
+
+		<!-- Charts Grid -->
+		<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+			<!-- Claim History Overview (Line) -->
+			<div class="glass-panel p-6 rounded-2xl lg:col-span-2">
+				<h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+					<i data-lucide="trending-up" class="w-5 h-5 text-brightBlue"></i>
+					<span>Claim History Overview</span>
+				</h3>
+				<div class="relative" style="height:280px;">
+					<canvas id="trendChart" style="width:100%;height:100%;"></canvas>
+					<div v-if="!stats.monthly_trend || stats.monthly_trend.length === 0"
+						 class="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-xl">
+						<i data-lucide="trending-up" class="w-10 h-10 text-slate-300 mb-2"></i>
+						<span class="text-sm text-slate-400 font-medium">No trend data yet. Submit some bills first.</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Category Breakdown (Doughnut) -->
+			<div class="glass-panel p-6 rounded-2xl">
+				<h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+					<i data-lucide="pie-chart" class="w-5 h-5 text-emerald-500"></i>
+					<span>Category Breakdown</span>
+				</h3>
+				<div class="relative" style="height:280px;">
+					<canvas id="categoryChart" style="width:100%;height:100%;"></canvas>
+					<div v-if="!stats.category_breakdown || stats.category_breakdown.length === 0"
+						 class="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-xl">
+						<i data-lucide="pie-chart" class="w-10 h-10 text-slate-300 mb-2"></i>
+						<span class="text-sm text-slate-400 font-medium">No approved bills to categorize</span>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Recent Activity Log Section -->
+		<div class="glass-panel p-6 rounded-2xl">
+			<h3 class="font-bold text-base text-slate-800 mb-6 flex items-center gap-2">
+				<i data-lucide="activity" class="w-5 h-5 text-brightBlue"></i>
+				<span>Recent Activity Log</span>
+			</h3>
+			
+			<div v-if="!stats.recent_activity || stats.recent_activity.length === 0" class="text-sm text-slate-500 py-6 text-center">
+				No recent activities logged yet.
+			</div>
+			
+			<div v-else class="flow-root">
+				<ul role="list" class="-mb-8">
+					<li v-for="(act, actIdx) in stats.recent_activity" :key="act.name">
+						<div class="relative pb-8">
+							<span v-if="actIdx !== stats.recent_activity.length - 1" class="absolute left-4 top-4 -ml-px h-full w-0.5 bg-slate-200" aria-hidden="true"></span>
+							<div class="relative flex space-x-3">
+								<div>
+									<span class="h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white text-white" :class="getActivityBgClass(act)">
+										<i :data-lucide="getActivityIcon(act)" class="w-4 h-4 text-white"></i>
+									</span>
+								</div>
+								<div class="flex-1 min-w-0 pt-1.5 flex justify-between space-x-4">
+									<div class="text-sm text-slate-600">
+										<span v-html="getActivityMessage(act)"></span>
+									</div>
+									<div class="text-right text-xs whitespace-nowrap text-slate-400">
+										<time :datetime="act.modified">{{ formatDateString(act.modified) }}</time>
+									</div>
+								</div>
+							</div>
+						</div>
+					</li>
+				</ul>
+			</div>
+		</div>
+
+	</template>
+</div>
+{% endraw %}
+{% endblock %}
+
+{% block script %}
+<script>
+	const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+
+	const app = createApp({
+		setup() {
+			const base = usePortalBase('/portal/dashboard', 'Dashboard', 'Dynamic dashboard view.');
+			const loading = ref(true);
+			const stats = ref({
+				total_submitted: 0,
+				pending_count: 0,
+				pending_amount: 0,
+				approved_count: 0,
+				approved_amount: 0,
+				rejected_count: 0,
+				rejected_amount: 0,
+				employee_count: 0,
+				recent_bills: [],
+				category_breakdown: [],
+				recent_activity: []
+			});
+
+			const categories = ['Travel', 'Food', 'Office', 'Medical', 'Internet', 'Training', 'Other'];
+			const employees = ref([]);
+			const filters = reactive({
+				status: 'All',
+				category: 'All',
+				employee: '',
+				date: ''
+			});
+
+			let trendChart = null;
+			let categoryChart = null;
+
+			const fetchStats = async () => {
+				loading.value = true;
+				try {
+					const method = base.user.is_admin ? 'get_dashboard_stats' : 'get_my_dashboard_stats';
+					const query = new URLSearchParams({
+						status: filters.status,
+						category: filters.category,
+						employee: filters.employee,
+						date: filters.date
+					});
+					const response = await fetch(`/api/method/expense_tracker.api.${method}?${query.toString()}`, {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await response.json();
+					if (data.message) {
+						stats.value = data.message;
+					}
+				} catch (e) {
+					base.showToast('Error loading statistics: ' + e.message, 'error');
+				} finally {
+					loading.value = false;
+					nextTick(() => {
+						renderCharts();
+					});
+				}
+			};
+
+			const fetchEmployeesDropdown = async () => {
+				if (!base.user.is_admin) return;
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.get_employees', {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await response.json();
+					if (data.message) {
+						employees.value = data.message;
+					}
+				} catch (e) {
+					console.error(e);
+				}
+			};
+
+			const renderCharts = () => {
+				const PALETTE = ['#114EFF','#14F1B1','#8B5CF6','#F59E0B','#EC4899','#10B981','#F97316'];
+
+				const tooltipStyle = {
+					backgroundColor: '#0F172A',
+					titleColor: '#F1F5F9',
+					bodyColor: '#CBD5E1',
+					padding: 12,
+					cornerRadius: 8
+				};
+
+				// Category Doughnut
+				const catCtx = document.getElementById('categoryChart');
+				if (catCtx) {
+					if (categoryChart) categoryChart.destroy();
+					const cats = stats.value.category_breakdown || [];
+					if (cats.length > 0) {
+						categoryChart = new Chart(catCtx, {
+							type: 'doughnut',
+							data: {
+								labels: cats.map(c => c.category),
+								datasets: [{
+									data: cats.map(c => c.total),
+									backgroundColor: PALETTE.slice(0, cats.length),
+									borderWidth: 2,
+									borderColor: '#FFFFFF',
+									hoverOffset: 8
+								}]
+							},
+							options: {
+								responsive: true,
+								maintainAspectRatio: false,
+								cutout: '60%',
+								plugins: {
+									legend: {
+										position: 'bottom',
+										labels: { color: '#475569', font: { family: 'DM Sans', size: 11 }, boxWidth: 12, padding: 12 }
+									},
+									tooltip: {
+										...tooltipStyle,
+										callbacks: { label: ctx => ` ${ctx.label}: $${parseFloat(ctx.raw).toFixed(2)}` }
+									}
+								}
+							}
+						});
+					}
+				}
+
+				// Trend Line Chart
+				const trendCtx = document.getElementById('trendChart');
+				if (trendCtx) {
+					if (trendChart) trendChart.destroy();
+					const monthlyData = stats.value.monthly_trend ? [...stats.value.monthly_trend].reverse() : [];
+					if (monthlyData.length > 0) {
+						trendChart = new Chart(trendCtx, {
+							type: 'line',
+							data: {
+								labels: monthlyData.map(m => m.month),
+								datasets: [
+									{
+										label: 'Approved ($)',
+										data: monthlyData.map(m => m.approved),
+										borderColor: '#14F1B1',
+										backgroundColor: 'rgba(20,241,177,0.10)',
+										fill: true,
+										tension: 0.4,
+										borderWidth: 2.5,
+										pointBackgroundColor: '#14F1B1',
+										pointRadius: 5,
+										pointHoverRadius: 7
+									},
+									{
+										label: 'Gross Submitted ($)',
+										data: monthlyData.map(m => m.total),
+										borderColor: '#114EFF',
+										backgroundColor: 'rgba(17,78,255,0.08)',
+										fill: true,
+										tension: 0.4,
+										borderWidth: 2.5,
+										pointBackgroundColor: '#114EFF',
+										pointRadius: 5,
+										pointHoverRadius: 7
+									}
+								]
+							},
+							options: {
+								responsive: true,
+								maintainAspectRatio: false,
+								interaction: { mode: 'index', intersect: false },
+								plugins: {
+									legend: {
+										display: true,
+										labels: { color: '#475569', font: { family: 'DM Sans', size: 11 }, boxWidth: 12, padding: 12 }
+									},
+									tooltip: {
+										...tooltipStyle,
+										callbacks: { label: ctx => ` $${parseFloat(ctx.raw).toFixed(2)}` }
+									}
+								},
+								scales: {
+									x: { grid: { color: '#E2E8F0' }, ticks: { color: '#475569', font: { size: 11 } } },
+									y: {
+										grid: { color: '#E2E8F0' },
+										ticks: { color: '#475569', font: { size: 11 }, callback: v => '$' + v },
+										beginAtZero: true
+									}
+								}
+							}
+						});
+					}
+				}
+				nextTick(() => { lucide.createIcons(); });
+			};
+
+			const getActivityBgClass = (act) => {
+				if (act.creation === act.modified) {
+					return 'bg-blue-500';
+				}
+				if (act.status === 'Approved') {
+					return 'bg-emerald-500';
+				}
+				if (act.status === 'Rejected') {
+					return 'bg-rose-500';
+				}
+				return 'bg-amber-500';
+			};
+
+			const getActivityIcon = (act) => {
+				if (act.creation === act.modified) {
+					return 'file-plus';
+				}
+				if (act.status === 'Approved') {
+					return 'check-circle';
+				}
+				if (act.status === 'Rejected') {
+					return 'x-circle';
+				}
+				return 'edit-3';
+			};
+
+			const getActivityMessage = (act) => {
+				const submitter = act.submitter_name || act.submitted_by;
+				const modifier = act.modifier_name || act.modified_by;
+				const title = act.bill_title;
+				const amount = act.amount;
+				const name = act.name;
+
+				if (act.creation === act.modified) {
+					return `<strong>${submitter}</strong> submitted a new bill <span class="text-slate-805 font-semibold">"${title}"</span> (<span class="font-medium text-slate-800">$${amount}</span>) [${name}]`;
+				}
+				if (act.status === 'Approved') {
+					const remarksText = act.remarks ? ` with remarks: <span class="italic text-slate-500">"${act.remarks}"</span>` : '';
+					return `<strong>${modifier}</strong> <span class="text-emerald-600 font-semibold">approved</span> bill <span class="text-slate-800 font-semibold">"${title}"</span> ($${amount}) [${name}]${remarksText}`;
+				}
+				if (act.status === 'Rejected') {
+					const remarksText = act.remarks ? ` with remarks: <span class="italic text-slate-500">"${act.remarks}"</span>` : '';
+					return `<strong>${modifier}</strong> <span class="text-rose-600 font-semibold">rejected</span> bill <span class="text-slate-800 font-semibold">"${title}"</span> ($${amount}) [${name}]${remarksText}`;
+				}
+				return `<strong>${submitter}</strong> <span class="text-amber-600 font-semibold">updated</span> bill <span class="text-slate-800 font-semibold">"${title}"</span> ($${amount}) [${name}]`;
+			};
+
+			onMounted(() => {
+				const interval = setInterval(() => {
+					if (base.booted.value) {
+						clearInterval(interval);
+						fetchStats();
+						fetchEmployeesDropdown();
+					}
+				}, 50);
+			});
+
+			return {
+				...base,
+				loading,
+				stats,
+				categories,
+				employees,
+				filters,
+				fetchStats,
+				formatAmount,
+				formatDateString,
+				getActivityBgClass,
+				getActivityIcon,
+				getActivityMessage
+			};
+		}
+	});
+	registerVueError(app);
+	app.mount('#app');
+</script>
+{% endblock %}

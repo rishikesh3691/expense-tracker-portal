@@ -1,0 +1,697 @@
+{% extends "templates/pages/portal_base.html" %}
+
+{% block title %}Bills - Expense Tracker Portal{% endblock %}
+
+{% block content %}
+{% raw %}
+<div class="space-y-6">
+	<!-- Header Action Bar -->
+	<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 glass-panel p-4 rounded-2xl">
+		<!-- Search -->
+		<div class="relative flex-1 max-w-md">
+			<i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+			<input type="text" v-model="filters.search" @input="debouncedFetch" placeholder="Search bills by title or category..." 
+				   class="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+		</div>
+
+		<div class="flex items-center gap-3 flex-wrap">
+			<!-- Category Filter -->
+			<select v-model="filters.category" @change="fetchBills(0)" 
+					class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+				<option value="All">All Categories</option>
+				<option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+			</select>
+
+			<!-- Status Filter -->
+			<select v-model="filters.status" @change="fetchBills(0)" 
+					class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+				<option value="All">All Statuses</option>
+				<option value="Pending">Pending</option>
+				<option value="Approved">Approved</option>
+				<option value="Rejected">Rejected</option>
+			</select>
+
+			<!-- Employee Filter (Admin only) -->
+			<select v-if="user.is_admin" v-model="filters.employee" @change="fetchBills(0)" 
+					class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700 max-w-[160px]">
+				<option value="">All Employees</option>
+				<option v-for="emp in employees" :key="emp.user" :value="emp.user">{{ emp.employee_name }}</option>
+			</select>
+
+			<!-- Date Filter -->
+			<input type="date" v-model="filters.date" @change="fetchBills(0)" 
+				   class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+
+			<!-- Export options -->
+			<button @click="exportData('csv')" class="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:border-brightBlue hover:bg-brightBlue/5 text-sm font-semibold flex items-center gap-1.5 transition text-slate-700">
+				<i data-lucide="download" class="w-4 h-4 text-slate-400"></i>
+				<span>CSV</span>
+			</button>
+			
+			<button @click="exportData('excel')" class="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:border-mintGreen hover:bg-mintGreen/5 text-sm font-semibold flex items-center gap-1.5 transition text-slate-700">
+				<i data-lucide="file-spreadsheet" class="w-4 h-4 text-slate-400"></i>
+				<span>Excel</span>
+			</button>
+		</div>
+	</div>
+
+	<!-- Main Table Content -->
+	<div class="glass-panel rounded-2xl overflow-hidden relative min-h-[300px]">
+		<!-- Loading State -->
+		<div v-if="loading" class="absolute inset-0 bg-white/50 flex flex-col items-center justify-center z-10">
+			<div class="w-10 h-10 border-4 border-brightBlue/20 border-t-brightBlue animate-spin rounded-full mb-3"></div>
+			<span class="text-sm text-slate-500">Fetching records...</span>
+		</div>
+
+		<!-- Empty State -->
+		<div v-if="!loading && bills.length === 0" class="py-20 text-center text-slate-500">
+			<i data-lucide="folder-open" class="w-16 h-16 mx-auto mb-4 opacity-40"></i>
+			<h3 class="text-lg font-bold text-slate-800 mb-1">No Bills Found</h3>
+			<p class="text-sm max-w-xs mx-auto mb-6">Create a new bill submission or adjust your search filters to display documents.</p>
+			<a href="/portal/add-bill" class="px-5 py-2.5 rounded-xl btn-gradient text-navyDark font-bold text-sm inline-flex items-center gap-2">
+				<i data-lucide="plus-circle" class="w-4 h-4 text-navyDark"></i>
+				<span>Create First Bill</span>
+			</a>
+		</div>
+
+		<div v-else class="overflow-x-auto">
+			<table class="w-full text-left text-sm border-collapse">
+				<thead>
+					<tr class="border-b border-slate-200 text-slate-500 text-xs font-semibold uppercase tracking-wider bg-slate-50">
+						<th class="py-4 px-6 cursor-pointer hover:text-slate-800" @click="toggleSort('name')">
+							ID <span v-if="sortBy === 'name'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+						</th>
+						<th class="py-4 px-6 cursor-pointer hover:text-slate-800" @click="toggleSort('bill_title')">
+							Bill Title <span v-if="sortBy === 'bill_title'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+						</th>
+						<th class="py-4 px-6">Category</th>
+						<th class="py-4 px-6 cursor-pointer hover:text-slate-800" @click="toggleSort('bill_date')">
+							Date <span v-if="sortBy === 'bill_date'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+						</th>
+						<th class="py-4 px-6" v-if="user.is_admin">Employee</th>
+						<th class="py-4 px-6 cursor-pointer hover:text-slate-800" @click="toggleSort('amount')">
+							Amount <span v-if="sortBy === 'amount'">{{ sortOrder === 'asc' ? '▲' : '▼' }}</span>
+						</th>
+						<th class="py-4 px-6">Status</th>
+						<th class="py-4 px-6 text-right">Actions</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-slate-100">
+					<tr v-for="bill in sortedBills" :key="bill.name" class="hover:bg-slate-50/80 transition group border-b border-slate-100">
+						<td class="py-4 px-6 font-mono text-xs text-slate-500">#{{ bill.name }}</td>
+						<td class="py-4 px-6">
+							<div class="font-semibold text-slate-800 mb-0.5">{{ bill.bill_title }}</div>
+							<p class="text-xs text-slate-500 truncate max-w-xs">{{ bill.description || 'No description' }}</p>
+						</td>
+						<td class="py-4 px-6">
+							<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 border border-slate-200 text-slate-700">{{ bill.category }}</span>
+						</td>
+						<td class="py-4 px-6 text-slate-500">{{ formatDateString(bill.bill_date) }}</td>
+						<td class="py-4 px-6 text-slate-500 font-medium" v-if="user.is_admin">
+							{{ bill.submitter_name }}
+						</td>
+						<td class="py-4 px-6 font-extrabold text-slate-800 text-base">${{ formatAmount(bill.amount) }}</td>
+						<td class="py-4 px-6">
+							<span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border"
+								  :class="{
+								  	'bg-amber-50 border-amber-200 text-amber-700': bill.status === 'Pending',
+								  	'bg-emerald-50 border-emerald-200 text-emerald-700': bill.status === 'Approved',
+								  	'bg-rose-50 border-rose-200 text-rose-700': bill.status === 'Rejected',
+								  }">
+								{{ bill.status }}
+							</span>
+						</td>
+						<td class="py-4 px-6 text-right">
+							<div class="flex items-center justify-end gap-2.5">
+								<!-- View Receipt -->
+								<button v-if="bill.receipt_image" @click="viewReceipt(bill.receipt_image)" 
+										title="View Receipt" class="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center hover:border-brightBlue hover:bg-brightBlue/10 transition">
+									<i data-lucide="image" class="w-4 h-4 text-slate-500 hover:text-brightBlue"></i>
+								</button>
+								
+								<!-- Admin Approvals -->
+								<template v-if="user.is_admin && bill.status === 'Pending'">
+									<button @click="openApprovalModal(bill, 'Approve')" 
+											title="Approve Bill" class="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center hover:border-emerald-500/40 hover:bg-emerald-500/20 transition text-emerald-700">
+										<i data-lucide="check" class="w-4 h-4 text-emerald-700"></i>
+									</button>
+									<button @click="openApprovalModal(bill, 'Reject')" 
+											title="Reject Bill" class="w-8 h-8 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center hover:border-rose-500/40 hover:bg-rose-505/20 transition text-rose-700">
+										<i data-lucide="x" class="w-4 h-4 text-rose-700"></i>
+									</button>
+								</template>
+
+								<!-- Edit / Delete (Pending only or Admin) -->
+								<template v-if="bill.status === 'Pending' || user.is_admin">
+									<button @click="openEditModal(bill)" 
+											title="Edit Bill" class="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center hover:border-brightBlue hover:bg-brightBlue/10 transition">
+										<i data-lucide="edit" class="w-4 h-4 text-slate-500 hover:text-brightBlue"></i>
+									</button>
+									<button @click="confirmDelete(bill.name)" 
+											title="Delete Bill" class="w-8 h-8 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center hover:border-rose-500/40 hover:bg-rose-500/20 transition text-rose-700">
+										<i data-lucide="trash-2" class="w-4 h-4 text-rose-700"></i>
+									</button>
+								</template>
+							</div>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<!-- Pagination footer -->
+		<div v-if="totalCount > pageLength" class="flex items-center justify-between p-4 border-t border-slate-200 bg-slate-50">
+			<span class="text-xs text-slate-500 font-medium">
+				Showing {{ startIndex + 1 }} to {{ Math.min(startIndex + pageLength, totalCount) }} of {{ totalCount }} records
+			</span>
+			<div class="flex items-center gap-2">
+				<button @click="prevPage" :disabled="startIndex === 0" 
+						class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brightBlue text-xs font-semibold disabled:opacity-50 disabled:pointer-events-none transition text-slate-700">
+					Previous
+				</button>
+				<button @click="nextPage" :disabled="startIndex + pageLength >= totalCount" 
+						class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-brightBlue text-xs font-semibold disabled:opacity-50 disabled:pointer-events-none transition text-slate-700">
+					Next
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- --- MODALS --- -->
+
+	<!-- 1. Edit Bill Modal -->
+	<div v-if="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+		<div class="w-full max-w-lg glass-panel rounded-2xl overflow-hidden p-6 space-y-6 shadow-2xl">
+			<div class="flex items-center justify-between border-b border-slate-100 pb-4">
+				<h3 class="font-bold text-lg text-slate-800">Modify Bill: <span class="text-xs font-mono text-slate-400">#{{ editForm.name }}</span></h3>
+				<button @click="showEditModal = false" class="text-slate-400 hover:text-slate-800 text-xl">&times;</button>
+			</div>
+
+			<form @submit.prevent="updateBillSubmit" class="space-y-4">
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Bill Title *</label>
+					<input type="text" v-model="editForm.bill_title" required 
+						   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Amount ($) *</label>
+						<input type="number" step="0.01" v-model="editForm.amount" required 
+							   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+					</div>
+					<div>
+						<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Category *</label>
+						<select v-model="editForm.category" required 
+								class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-brightBlue transition">
+							<option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+						</select>
+					</div>
+				</div>
+
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+					<div>
+						<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Bill Date *</label>
+						<input type="date" v-model="editForm.bill_date" required 
+							   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-brightBlue transition">
+					</div>
+					<div v-if="user.is_admin">
+						<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Admin Remarks</label>
+						<input type="text" v-model="editForm.remarks" 
+							   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+					</div>
+				</div>
+
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Description</label>
+					<textarea v-model="editForm.description" rows="3" 
+							  class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition"></textarea>
+				</div>
+
+				<!-- Receipt Upload in Edit -->
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Receipt Attachment Image</label>
+					<div class="flex items-center gap-3">
+						<img v-if="editForm.receipt_image" :src="editForm.receipt_image" class="w-12 h-12 object-cover rounded-lg border border-slate-200">
+						<input type="file" @change="uploadReceiptImageEdit" accept="image/*" 
+							   class="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-brightBlue/10 file:text-brightBlue hover:file:bg-brightBlue/20">
+					</div>
+				</div>
+
+				<div class="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+					<button type="button" @click="showEditModal = false" class="px-5 py-2.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 text-sm font-semibold text-slate-700 transition">
+						Cancel
+					</button>
+					<button type="submit" class="px-5 py-2.5 rounded-xl bg-brightBlue hover:bg-brightBlue/90 text-white text-sm font-bold transition flex items-center gap-2">
+						<i data-lucide="save" class="w-4 h-4"></i>
+						<span>Save Changes</span>
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<!-- 2. Admin Approval Remarks Modal -->
+	<div v-if="showApprovalModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+		<div class="w-full max-w-md glass-panel rounded-2xl p-6 space-y-6 shadow-2xl">
+			<div class="flex items-center justify-between border-b border-slate-100 pb-4">
+				<h3 class="font-bold text-lg text-slate-800">{{ approvalAction }} Bill</h3>
+				<button @click="showApprovalModal = false" class="text-slate-400 hover:text-slate-800 text-xl">&times;</button>
+			</div>
+
+			<p class="text-sm text-slate-650">
+				Please add validation remarks for <strong>{{ selectedBill ? selectedBill.bill_title : "" }}</strong> (${{ selectedBill ? selectedBill.amount : "0.00" }}).
+			</p>
+
+			<div>
+				<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Remarks / Reason</label>
+				<textarea v-model="approvalRemarks" rows="3" placeholder="Enter reason here..." 
+						  class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition"></textarea>
+			</div>
+
+			<div class="flex items-center justify-end gap-3 pt-2">
+				<button @click="showApprovalModal = false" class="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:border-slate-300 text-sm font-semibold text-slate-700 transition">
+					Cancel
+				</button>
+				<button @click="submitApprovalAction" 
+						class="px-5 py-2 rounded-xl text-white text-sm font-extrabold transition shadow"
+						:class="approvalAction === 'Approve' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'">
+					Confirm {{ approvalAction }}
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- 3. View Attachment Lightbox -->
+	<div v-if="lightboxUrl" @click="lightboxUrl = null" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm cursor-zoom-out">
+		<div class="relative max-w-3xl max-h-[90vh]">
+			<img :src="lightboxUrl" alt="Receipt Image" class="max-w-full max-h-[80vh] rounded-xl object-contain border border-slate-700 shadow-2xl">
+			<p class="text-center text-xs text-slate-400 mt-4">Click anywhere to close receipt image viewer</p>
+		</div>
+	</div>
+</div>
+{% endraw %}
+{% endblock %}
+
+{% block script %}
+<script>
+	const { createApp, ref, reactive, onMounted, nextTick, computed } = Vue;
+
+	const app = createApp({
+		setup() {
+			const base = usePortalBase('/portal/bills', 'Bills', 'View and manage expense bills.');
+			const loading = ref(true);
+			const bills = ref([]);
+			const employees = ref([]);
+			const totalCount = ref(0);
+			const startIndex = ref(0);
+			const pageLength = 15;
+			
+			const categories = ['Travel', 'Food', 'Office', 'Medical', 'Internet', 'Training', 'Other'];
+			const filters = reactive({
+				search: '',
+				status: 'All',
+				category: 'All',
+				employee: '',
+				date: ''
+			});
+
+			// Sorting
+			const sortBy = ref('bill_date');
+			const sortOrder = ref('desc');
+
+			// Modals
+			const showEditModal = ref(false);
+			const editForm = reactive({
+				name: '',
+				bill_title: '',
+				amount: 0,
+				category: '',
+				bill_date: '',
+				description: '',
+				receipt_image: '',
+				remarks: ''
+			});
+
+			const showApprovalModal = ref(false);
+			const approvalAction = ref('');
+			const approvalRemarks = ref('');
+			const selectedBill = ref(null);
+
+			const lightboxUrl = ref(null);
+
+			const toggleSort = (field) => {
+				if (sortBy.value === field) {
+					sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+				} else {
+					sortBy.value = field;
+					sortOrder.value = 'desc';
+				}
+			};
+
+			const sortedBills = computed(() => {
+				return [...bills.value].sort((a, b) => {
+					let factor = sortOrder.value === 'asc' ? 1 : -1;
+					let valA = a[sortBy.value];
+					let valB = b[sortBy.value];
+					
+					if (sortBy.value === 'amount') {
+						return (parseFloat(valA) - parseFloat(valB)) * factor;
+					}
+					
+					valA = String(valA || '').toLowerCase();
+					valB = String(valB || '').toLowerCase();
+					if (valA < valB) return -1 * factor;
+					if (valA > valB) return 1 * factor;
+					return 0;
+				});
+			});
+
+			// Fetch list
+			const fetchBills = async (start = 0) => {
+				loading.value = true;
+				startIndex.value = start;
+				try {
+					const query = new URLSearchParams({
+						start: start,
+						page_length: pageLength,
+						status: filters.status,
+						category: filters.category,
+						employee: filters.employee
+					});
+					if (filters.search) query.append('search', filters.search);
+					if (filters.date) query.append('date', filters.date);
+
+					const response = await fetch(`/api/method/expense_tracker.api.get_bills?${query.toString()}`, {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await response.json();
+					if (data.message) {
+						bills.value = data.message.bills || [];
+						totalCount.value = data.message.total_count || 0;
+					}
+				} catch (e) {
+					base.showToast('Failed to fetch bills: ' + e.message, 'error');
+				} finally {
+					loading.value = false;
+					nextTick(() => { lucide.createIcons(); });
+				}
+			};
+
+			// Fetch Employees (Admin dropdown)
+			const fetchEmployeesDropdown = async () => {
+				if (!base.user.is_admin) return;
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.get_employees', {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await response.json();
+					if (data.message) {
+						employees.value = data.message;
+					}
+				} catch (e) {
+					console.error(e);
+				}
+			};
+
+			// Debounce Search
+			let timeout = null;
+			const debouncedFetch = () => {
+				clearTimeout(timeout);
+				timeout = setTimeout(() => {
+					fetchBills(0);
+				}, 350);
+			};
+
+			// Actions
+			const confirmDelete = async (name) => {
+				if (!confirm(`Are you sure you want to delete bill #${name}?`)) return;
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.delete_bill', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify({ name })
+					});
+					const data = await response.json();
+					if (data.message && data.message.status === 'success') {
+						base.showToast('Bill deleted successfully', 'success');
+						fetchBills(startIndex.value);
+					} else {
+						base.showToast('Failed to delete bill', 'error');
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				}
+			};
+
+			// Edit Modal
+			const openEditModal = (bill) => {
+				Object.assign(editForm, {
+					name: bill.name,
+					bill_title: bill.bill_title,
+					amount: bill.amount,
+					category: bill.category,
+					bill_date: bill.bill_date,
+					description: bill.description || '',
+					receipt_image: bill.receipt_image || '',
+					remarks: bill.remarks || ''
+				});
+				showEditModal.value = true;
+			};
+
+			// Upload file inside edit modal
+			const uploadReceiptImageEdit = async (e) => {
+				const file = e.target.files[0];
+				if (!file) return;
+				
+				const formData = new FormData();
+				formData.append('file', file);
+				formData.append('is_private', 0);
+
+				try {
+					const res = await fetch('/api/method/upload_file', {
+						method: 'POST',
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken },
+						body: formData
+					});
+					const data = await res.json();
+					if (data.message && data.message.file_url) {
+						editForm.receipt_image = data.message.file_url;
+						base.showToast('File uploaded successfully', 'success');
+					} else {
+						base.showToast('File upload failed', 'error');
+					}
+				} catch (err) {
+					base.showToast(err.message, 'error');
+				}
+			};
+
+			const updateBillSubmit = async () => {
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.update_bill', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify(editForm)
+					});
+					const data = await response.json();
+					if (data.message) {
+						base.showToast('Bill updated successfully', 'success');
+						showEditModal.value = false;
+						fetchBills(startIndex.value);
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				}
+			};
+
+			// Admin Approvals Modal
+			const openApprovalModal = (bill, action) => {
+				selectedBill.value = bill;
+				approvalAction.value = action;
+				approvalRemarks.value = '';
+				showApprovalModal.value = true;
+			};
+
+			const submitApprovalAction = async () => {
+				if (!selectedBill.value) return;
+				const apiPath = approvalAction.value === 'Approve' ? 'approve_bill' : 'reject_bill';
+				try {
+					const response = await fetch(`/api/method/expense_tracker.api.${apiPath}`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify({
+							name: selectedBill.value.name,
+							remarks: approvalRemarks.value
+						})
+					});
+					const data = await response.json();
+					if (data.message) {
+						base.showToast(`Bill successfully ${approvalAction.value.toLowerCase()}d`, 'success');
+						showApprovalModal.value = false;
+						fetchBills(startIndex.value);
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				}
+			};
+
+			const viewReceipt = (url) => {
+				lightboxUrl.value = url;
+			};
+
+			// Export CSV/Excel
+			const exportData = async (type) => {
+				try {
+					const query = new URLSearchParams({
+						start: 0,
+						page_length: 1000,
+						status: filters.status,
+						category: filters.category,
+						employee: filters.employee
+					});
+					if (filters.search) query.append('search', filters.search);
+					if (filters.date) query.append('date', filters.date);
+
+					const res = await fetch(`/api/method/expense_tracker.api.get_bills?${query.toString()}`, {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await res.json();
+					if (!data.message || !data.message.bills) return;
+
+					const records = data.message.bills;
+					
+					if (type === 'csv') {
+						let csvContent = "data:text/csv;charset=utf-8,";
+						csvContent += "ID,Bill Title,Category,Date,Employee,Amount,Status,Description,Remarks\n";
+						
+						records.forEach(b => {
+							const row = [
+								b.name,
+								`"${b.bill_title.replace(/"/g, '""')}"`,
+								b.category,
+								b.bill_date,
+								b.submitted_by,
+								b.amount,
+								b.status,
+								`"${(b.description || '').replace(/"/g, '""')}"`,
+								`"${(b.remarks || '').replace(/"/g, '""')}"`
+							].join(",");
+							csvContent += row + "\n";
+						});
+
+						const encodedUri = encodeURI(csvContent);
+						const link = document.createElement("a");
+						link.setAttribute("href", encodedUri);
+						link.setAttribute("download", `expenses_${filters.status}_${Date.now()}.csv`);
+						document.body.appendChild(link);
+						link.click();
+						document.body.removeChild(link);
+						base.showToast('CSV Export Downloaded', 'success');
+					} else {
+						let excelContent = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
+						excelContent += '<head><meta charset="UTF-8"></head><body><table border="1">';
+						excelContent += '<tr><th>ID</th><th>Bill Title</th><th>Category</th><th>Date</th><th>Employee</th><th>Amount</th><th>Status</th><th>Description</th><th>Remarks</th></tr>';
+						
+						records.forEach(b => {
+							excelContent += `<tr>
+								<td>${b.name}</td>
+								<td>${b.bill_title}</td>
+								<td>${b.category}</td>
+								<td>${b.bill_date}</td>
+								<td>${b.submitted_by}</td>
+								<td>${b.amount}</td>
+								<td>${b.status}</td>
+								<td>${b.description || ''}</td>
+								<td>${b.remarks || ''}</td>
+							</tr>`;
+						});
+						excelContent += '</table></body></html>';
+
+						const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel' });
+						const link = document.createElement("a");
+						link.href = URL.createObjectURL(blob);
+						link.download = `expenses_${filters.status}_${Date.now()}.xls`;
+						document.body.appendChild(link);
+						link.click();
+						document.body.removeChild(link);
+						base.showToast('Excel Export Downloaded', 'success');
+					}
+				} catch (e) {
+					base.showToast('Export failed: ' + e.message, 'error');
+				}
+			};
+
+			// Pagination controls
+			const nextPage = () => {
+				if (startIndex.value + pageLength < totalCount.value) {
+					fetchBills(startIndex.value + pageLength);
+				}
+			};
+
+			const prevPage = () => {
+				if (startIndex.value > 0) {
+					fetchBills(startIndex.value - pageLength);
+				}
+			};
+
+			onMounted(() => {
+				const interval = setInterval(() => {
+					if (base.booted.value) {
+						clearInterval(interval);
+						fetchBills(0);
+						fetchEmployeesDropdown();
+					}
+				}, 50);
+			});
+
+			return {
+				...base,
+				loading,
+				bills,
+				employees,
+				totalCount,
+				startIndex,
+				pageLength,
+				categories,
+				filters,
+				sortBy,
+				sortOrder,
+				toggleSort,
+				sortedBills,
+				debouncedFetch,
+				fetchBills,
+				confirmDelete,
+				showEditModal,
+				editForm,
+				openEditModal,
+				uploadReceiptImageEdit,
+				updateBillSubmit,
+				showApprovalModal,
+				approvalAction,
+				approvalRemarks,
+				selectedBill,
+				openApprovalModal,
+				submitApprovalAction,
+				lightboxUrl,
+				viewReceipt,
+				exportData,
+				nextPage,
+				prevPage,
+				formatAmount,
+				formatDateString
+			};
+		}
+	});
+	registerVueError(app);
+	app.mount('#app');
+</script>
+{% endblock %}

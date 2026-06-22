@@ -1,0 +1,247 @@
+{% extends "templates/pages/portal_base.html" %}
+
+{% block title %}Settings - Expense Tracker Portal{% endblock %}
+
+{% block content %}
+{% raw %}
+<div class="max-w-4xl mx-auto space-y-8">
+	<!-- Personal & Job Profile -->
+	<div class="glass-panel p-8 rounded-3xl relative overflow-hidden">
+		<h2 class="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
+			<i data-lucide="user" class="w-5 h-5 text-brightBlue"></i>
+			<span>Personal & Job Profile</span>
+		</h2>
+
+		<form @submit.prevent="saveProfile" class="space-y-6">
+			<div class="flex flex-col sm:flex-row items-center gap-6 pb-6 border-b border-slate-100">
+				<!-- Profile Avatar -->
+				<div class="relative w-24 h-24 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+					<img v-if="form.user_image" :src="form.user_image" alt="Profile avatar" class="w-full h-full object-cover">
+					<div v-else class="w-full h-full flex items-center justify-center bg-brightBlue/20 text-brightBlue text-3xl font-extrabold">
+						{{ form.full_name ? form.full_name.charAt(0).toUpperCase() : 'U' }}
+					</div>
+				</div>
+				
+				<!-- Avatar upload -->
+				<div class="space-y-1.5 text-center sm:text-left">
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">Change Profile Photo</label>
+					<input type="file" @change="uploadAvatar" accept="image/*" 
+						   class="text-xs text-slate-650 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-brightBlue/10 file:text-brightBlue hover:file:bg-brightBlue/20">
+					<p class="text-[10px] text-slate-400">Supports PNG, JPG (Max 2MB)</p>
+				</div>
+			</div>
+
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Display Name *</label>
+					<input type="text" v-model="form.full_name" required 
+						   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Contact Phone</label>
+					<input type="text" v-model="form.phone" 
+						   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+			</div>
+
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Department</label>
+					<input type="text" v-model="form.department" disabled 
+						   class="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500 focus:outline-none cursor-not-allowed">
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Designation</label>
+					<input type="text" v-model="form.designation" disabled 
+						   class="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500 focus:outline-none cursor-not-allowed">
+				</div>
+			</div>
+
+			<div class="flex justify-end pt-2">
+				<button type="submit" :disabled="submitting" 
+						class="px-6 py-3 rounded-xl btn-gradient text-[#0A194F] font-extrabold text-sm flex items-center gap-2">
+					<i data-lucide="check" class="w-4 h-4 text-[#0A194F]" v-if="!submitting"></i>
+					<div class="w-4 h-4 border-2 border-[#0A194F]/20 border-t-[#0A194F] animate-spin rounded-full" v-else></div>
+					<span>Save Settings</span>
+				</button>
+			</div>
+		</form>
+	</div>
+
+	<!-- Password Reset Card -->
+	<div class="glass-panel p-8 rounded-3xl relative overflow-hidden">
+		<h2 class="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
+			<i data-lucide="lock" class="w-5 h-5 text-rose-500"></i>
+			<span>Security credentials</span>
+		</h2>
+
+		<form @submit.prevent="changePassword" class="space-y-6">
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">New Password</label>
+					<input type="password" v-model="pwdForm.new_password" required minlength="6" placeholder="Enter new password" 
+						   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Confirm New Password</label>
+					<input type="password" v-model="pwdForm.confirm_password" required placeholder="Verify new password" 
+						   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+			</div>
+
+			<div class="flex justify-end pt-2">
+				<button type="submit" class="px-6 py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-extrabold text-sm flex items-center gap-2 transition duration-300">
+					<i data-lucide="key" class="w-4 h-4"></i>
+					<span>Update Password</span>
+				</button>
+			</div>
+		</form>
+	</div>
+</div>
+{% endraw %}
+{% endblock %}
+
+{% block script %}
+<script>
+	const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+
+	const app = createApp({
+		setup() {
+			const base = usePortalBase('/portal/settings', 'Settings', 'Personal profile and security settings.');
+			const submitting = ref(false);
+
+			// User Profile Form
+			const form = reactive({
+				full_name: '',
+				phone: '',
+				department: '',
+				designation: '',
+				user_image: ''
+			});
+
+			const pwdForm = reactive({
+				new_password: '',
+				confirm_password: ''
+			});
+
+			const loadSettings = async () => {
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.get_settings', {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await response.json();
+					if (data.message) {
+						const m = data.message;
+						form.full_name = m.full_name || '';
+						form.user_image = m.user_image || '';
+						
+						const emp = m.employee_details || {};
+						form.phone = emp.phone || '';
+						form.department = emp.department || '';
+						form.designation = emp.designation || '';
+					}
+				} catch (e) {
+					base.showToast('Error loading settings: ' + e.message, 'error');
+				} finally {
+					nextTick(() => { lucide.createIcons(); });
+				}
+			};
+
+			const uploadAvatar = async (e) => {
+				const file = e.target.files[0];
+				if (!file) return;
+
+				const formData = new FormData();
+				formData.append('file', file);
+				formData.append('is_private', 0);
+
+				try {
+					const res = await fetch('/api/method/upload_file', {
+						method: 'POST',
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken },
+						body: formData
+					});
+					const data = await res.json();
+					if (data.message && data.message.file_url) {
+						form.user_image = data.message.file_url;
+						base.showToast('Avatar uploaded successfully', 'success');
+					} else {
+						base.showToast('Upload failed', 'error');
+					}
+				} catch (err) {
+					base.showToast(err.message, 'error');
+				}
+			};
+
+			const saveProfile = async () => {
+				submitting.value = true;
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.save_settings', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify(form)
+					});
+					const data = await response.json();
+					if (data.message) {
+						base.showToast('Profile saved successfully', 'success');
+						base.fetchUserData();
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				} finally {
+					submitting.value = false;
+				}
+			};
+
+			const changePassword = async () => {
+				if (pwdForm.new_password !== pwdForm.confirm_password) {
+					base.showToast('Passwords do not match', 'error');
+					return;
+				}
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.save_settings', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify({ password: pwdForm.new_password })
+					});
+					const data = await response.json();
+					if (data.message) {
+						base.showToast('Password updated successfully', 'success');
+						pwdForm.new_password = '';
+						pwdForm.confirm_password = '';
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				}
+			};
+
+			onMounted(() => {
+				const interval = setInterval(() => {
+					if (base.booted.value) {
+						clearInterval(interval);
+						loadSettings();
+					}
+				}, 50);
+			});
+
+			return {
+				...base,
+				submitting,
+				form,
+				pwdForm,
+				uploadAvatar,
+				saveProfile,
+				changePassword
+			};
+		}
+	});
+	registerVueError(app);
+	app.mount('#app');
+</script>
+{% endblock %}

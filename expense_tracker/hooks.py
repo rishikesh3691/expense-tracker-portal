@@ -11,15 +11,14 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "expense_tracker",
-# 		"logo": "/assets/expense_tracker/logo.png",
-# 		"title": "Expense Tracker",
-# 		"route": "/expense_tracker",
-# 		"has_permission": "expense_tracker.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "expense_tracker",
+		"logo": "/assets/expense_tracker/logo.png",
+		"title": "Expense Tracker",
+		"route": "/portal/dashboard"
+	}
+]
 
 # Includes in <head>
 # ------------------
@@ -57,12 +56,14 @@ app_license = "mit"
 # ----------
 
 # application home page (will override Website Settings)
-# home_page = "login"
+home_page = "portal/dashboard"
 
 # website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
+role_home_page = {
+	"Expense Admin": "portal/dashboard",
+	"Expense Employee": "portal/dashboard",
+	"System Manager": "portal/dashboard"
+}
 
 # Generators
 # ----------
@@ -247,3 +248,4 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+website_route_rules = []

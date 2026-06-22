@@ -1,0 +1,528 @@
+{% extends "templates/pages/portal_base.html" %}
+
+{% block title %}Reports & Analytics - Expense Tracker Portal{% endblock %}
+
+{% block content %}
+{% raw %}
+<div class="space-y-8">
+	<!-- Loading State -->
+	<div v-if="loading" class="flex flex-col items-center justify-center py-20">
+		<div class="w-12 h-12 rounded-full border-4 border-brightBlue/20 border-t-brightBlue animate-spin mb-4"></div>
+		<span class="text-sm text-slate-500">Loading reports summary...</span>
+	</div>
+
+	<template v-else>
+		<!-- Reports Filter Action Bar -->
+		<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 glass-panel p-4 rounded-2xl mb-6">
+			<div class="text-slate-800 font-extrabold text-sm flex items-center gap-1.5">
+				<i data-lucide="filter" class="w-4 h-4 text-emerald-500"></i>
+				<span>Analytics Filters</span>
+			</div>
+			<div class="flex items-center gap-3 flex-wrap">
+				<select v-model="filters.category" @change="fetchReportsData"
+						class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+					<option value="All">All Categories</option>
+					<option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+				</select>
+				<select v-model="filters.status" @change="fetchReportsData"
+						class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+					<option value="All">All Statuses</option>
+					<option value="Pending">Pending</option>
+					<option value="Approved">Approved</option>
+					<option value="Rejected">Rejected</option>
+				</select>
+				<select v-model="filters.employee" @change="fetchReportsData"
+						class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700 max-w-[160px]">
+					<option value="">All Employees</option>
+					<option v-for="emp in employees" :key="emp.user" :value="emp.user">{{ emp.employee_name }}</option>
+				</select>
+				<input type="date" v-model="filters.date" @change="fetchReportsData"
+					   class="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brightBlue text-slate-700">
+			</div>
+		</div>
+
+		<!-- Row 1: Summary Stats -->
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+			<div class="glass-card p-5 rounded-2xl">
+				<p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Total Claims</p>
+				<h2 class="text-2xl font-extrabold text-slate-800">{{ data.employee_stats.reduce((a,b) => a + b.count, 0) }}</h2>
+			</div>
+			<div class="glass-card p-5 rounded-2xl">
+				<p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Gross Submitted</p>
+				<h2 class="text-2xl font-extrabold text-slate-800">${{ formatAmount(data.employee_stats.reduce((a,b) => a + b.total, 0)) }}</h2>
+			</div>
+			<div class="glass-card p-5 rounded-2xl">
+				<p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Total Approved</p>
+				<h2 class="text-2xl font-extrabold text-emerald-600">${{ formatAmount(data.employee_stats.reduce((a,b) => a + b.approved, 0)) }}</h2>
+			</div>
+			<div class="glass-card p-5 rounded-2xl">
+				<p class="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Categories Used</p>
+				<h2 class="text-2xl font-extrabold text-brightBlue">{{ data.category_dist.length }}</h2>
+			</div>
+		</div>
+
+		<!-- Row 2: Monthly Trend + Top Categories -->
+		<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+			<!-- Monthly Expense Trend -->
+			<div class="glass-panel p-6 rounded-2xl lg:col-span-2">
+				<h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+					<i data-lucide="trending-up" class="w-5 h-5 text-brightBlue"></i>
+					<span>Monthly Expense Trend</span>
+				</h3>
+				<div class="relative" style="height:280px;">
+					<canvas id="monthlyTrendChart" style="width:100%;height:100%;"></canvas>
+					<div v-if="!data.monthly_trend || data.monthly_trend.length === 0"
+						 class="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-xl">
+						<i data-lucide="bar-chart-2" class="w-10 h-10 text-slate-300 mb-2"></i>
+						<span class="text-sm text-slate-400 font-medium">No trend data available yet</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Top Categories Contribution (Doughnut) -->
+			<div class="glass-panel p-6 rounded-2xl">
+				<h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+					<i data-lucide="pie-chart" class="w-5 h-5 text-emerald-500"></i>
+					<span>Top Categories Contribution</span>
+				</h3>
+				<div class="relative" style="height:280px;">
+					<canvas id="topCategoriesChart" style="width:100%;height:100%;"></canvas>
+					<div v-if="!data.category_dist || data.category_dist.length === 0"
+						 class="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-xl">
+						<i data-lucide="pie-chart" class="w-10 h-10 text-slate-300 mb-2"></i>
+						<span class="text-sm text-slate-400 font-medium">No category data available yet</span>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Row 3: Expense By Category + Expense By Employee -->
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<!-- Expense By Category -->
+			<div class="glass-panel p-6 rounded-2xl">
+				<h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+					<i data-lucide="bar-chart-3" class="w-5 h-5 text-emerald-500"></i>
+					<span>Expense By Category</span>
+				</h3>
+				<div class="relative" style="height:300px;">
+					<canvas id="categoryDistChart" style="width:100%;height:100%;"></canvas>
+					<div v-if="!data.category_dist || data.category_dist.length === 0"
+						 class="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-xl">
+						<i data-lucide="bar-chart-3" class="w-10 h-10 text-slate-300 mb-2"></i>
+						<span class="text-sm text-slate-400 font-medium">No category data available yet</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Expense By Employee -->
+			<div class="glass-panel p-6 rounded-2xl">
+				<h3 class="font-bold text-base text-slate-800 mb-4 flex items-center gap-2">
+					<i data-lucide="user-check" class="w-5 h-5 text-brightBlue"></i>
+					<span>Expense By Employee</span>
+				</h3>
+				<div class="relative" style="height:300px;">
+					<canvas id="employeeSpentChart" style="width:100%;height:100%;"></canvas>
+					<div v-if="!data.employee_stats || data.employee_stats.length === 0"
+						 class="absolute inset-0 flex flex-col items-center justify-center bg-white/80 rounded-xl">
+						<i data-lucide="users" class="w-10 h-10 text-slate-300 mb-2"></i>
+						<span class="text-sm text-slate-400 font-medium">No employee data available yet</span>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Row 4: Employee Contribution Table -->
+		<div class="glass-panel p-6 rounded-2xl">
+			<div class="flex items-center justify-between mb-6">
+				<h3 class="font-bold text-base text-slate-800 flex items-center gap-2">
+					<i data-lucide="sheet" class="w-5 h-5 text-emerald-500"></i>
+					<span>Employee Expense Contribution</span>
+				</h3>
+				<button @click="exportCSV" class="px-3.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-brightBlue hover:bg-brightBlue/5 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition">
+					<i data-lucide="download-cloud" class="w-4 h-4 text-slate-400"></i>
+					<span>Download CSV</span>
+				</button>
+			</div>
+			<div v-if="data.employee_stats.length === 0" class="py-12 text-center text-slate-400 text-sm">
+				No employee records found for selected filters.
+			</div>
+			<div v-else class="overflow-x-auto">
+				<table class="w-full text-left text-sm border-collapse">
+					<thead>
+						<tr class="border-b border-slate-200 text-slate-500 text-xs font-semibold uppercase tracking-wider bg-slate-50">
+							<th class="py-3 px-4">Employee</th>
+							<th class="py-3 px-4">User Email</th>
+							<th class="py-3 px-4 text-center">Claims</th>
+							<th class="py-3 px-4 text-right">Approved ($)</th>
+							<th class="py-3 px-4 text-right">Gross Claimed ($)</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100">
+						<tr v-for="stat in data.employee_stats" :key="stat.submitted_by" class="hover:bg-slate-50/80 transition">
+							<td class="py-3.5 px-4 font-semibold text-slate-800">{{ stat.employee_name }}</td>
+							<td class="py-3.5 px-4 font-mono text-xs text-slate-500">{{ stat.submitted_by }}</td>
+							<td class="py-3.5 px-4 text-center font-bold text-slate-600">{{ stat.count }}</td>
+							<td class="py-3.5 px-4 text-right font-extrabold text-emerald-600">${{ formatAmount(stat.approved) }}</td>
+							<td class="py-3.5 px-4 text-right font-extrabold text-slate-800">${{ formatAmount(stat.total) }}</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+
+	</template>
+</div>
+{% endraw %}
+{% endblock %}
+
+{% block script %}
+<script>
+	const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+
+	const app = createApp({
+		setup() {
+			const base = usePortalBase('/portal/reports', 'Reports', 'Detailed analytical reports.');
+			const loading = ref(true);
+			const data = ref({
+				monthly_trend: [],
+				category_dist: [],
+				employee_stats: []
+			});
+
+			const categories = ['Travel', 'Food', 'Office', 'Medical', 'Internet', 'Training', 'Other'];
+			const employees = ref([]);
+			const filters = reactive({
+				status: 'All',
+				category: 'All',
+				employee: '',
+				date: ''
+			});
+
+			// Chart instances — keep refs to destroy before re-rendering
+			let categoryDistChart = null;
+			let employeeSpentChart = null;
+			let monthlyTrendChart = null;
+			let topCategoriesChart = null;
+
+			// Vibrant accessible color palette
+			const PALETTE = ['#114EFF','#14F1B1','#8B5CF6','#F59E0B','#EC4899','#10B981','#F97316','#3B82F6'];
+			const PALETTE_LIGHT = ['rgba(17,78,255,0.15)','rgba(20,241,177,0.15)','rgba(139,92,246,0.15)','rgba(245,158,11,0.15)'];
+
+			const commonScales = {
+				x: {
+					ticks: { color: '#64748B', font: { family: 'DM Sans', size: 11 } },
+					grid: { color: '#E2E8F0' }
+				},
+				y: {
+					ticks: { color: '#64748B', font: { family: 'DM Sans', size: 11 }, callback: v => '$' + v.toLocaleString() },
+					grid: { color: '#E2E8F0' },
+					beginAtZero: true
+				}
+			};
+
+			const commonLegend = {
+				labels: { color: '#475569', font: { family: 'DM Sans', size: 11 }, boxWidth: 12, padding: 16 }
+			};
+
+			const commonTooltip = {
+				backgroundColor: '#0F172A',
+				titleColor: '#F1F5F9',
+				bodyColor: '#CBD5E1',
+				padding: 12,
+				cornerRadius: 8,
+				callbacks: {
+					label: ctx => ` $${parseFloat(ctx.raw).toFixed(2)}`
+				}
+			};
+
+			const fetchReportsData = async () => {
+				loading.value = true;
+				try {
+					const query = new URLSearchParams({
+						status: filters.status,
+						category: filters.category,
+						employee: filters.employee,
+						date: filters.date
+					});
+					const response = await fetch(`/api/method/expense_tracker.api.get_reports?${query.toString()}`, {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const resData = await response.json();
+					if (resData.message) {
+						data.value = resData.message;
+					}
+				} catch (e) {
+					base.showToast('Failed to load report data: ' + e.message, 'error');
+				} finally {
+					loading.value = false;
+					nextTick(() => {
+						renderAllCharts();
+					});
+				}
+			};
+
+			const fetchEmployeesDropdown = async () => {
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.get_employees', {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const res = await response.json();
+					if (res.message) employees.value = res.message;
+				} catch (e) { console.error(e); }
+			};
+
+			const renderAllCharts = () => {
+				renderMonthlyTrend();
+				renderTopCategories();
+				renderCategoryBar();
+				renderEmployeeBar();
+				nextTick(() => { lucide.createIcons(); });
+			};
+
+			// ── 1. Monthly Expense Trend (line chart) ──────────────────────────────
+			const renderMonthlyTrend = () => {
+				const ctx = document.getElementById('monthlyTrendChart');
+				if (!ctx) return;
+				if (monthlyTrendChart) monthlyTrendChart.destroy();
+
+				const trend = [...data.value.monthly_trend].reverse();
+				if (!trend.length) return;
+
+				monthlyTrendChart = new Chart(ctx, {
+					type: 'line',
+					data: {
+						labels: trend.map(t => t.month),
+						datasets: [
+							{
+								label: 'Approved ($)',
+								data: trend.map(t => t.approved),
+								borderColor: '#14F1B1',
+								backgroundColor: 'rgba(20,241,177,0.10)',
+								fill: true,
+								tension: 0.4,
+								borderWidth: 2.5,
+								pointBackgroundColor: '#14F1B1',
+								pointRadius: 5,
+								pointHoverRadius: 7
+							},
+							{
+								label: 'Gross Submitted ($)',
+								data: trend.map(t => t.total),
+								borderColor: '#114EFF',
+								backgroundColor: 'rgba(17,78,255,0.08)',
+								fill: true,
+								tension: 0.4,
+								borderWidth: 2.5,
+								pointBackgroundColor: '#114EFF',
+								pointRadius: 5,
+								pointHoverRadius: 7
+							}
+						]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: false,
+						interaction: { mode: 'index', intersect: false },
+						plugins: {
+							legend: { display: true, ...commonLegend },
+							tooltip: commonTooltip
+						},
+						scales: commonScales
+					}
+				});
+			};
+
+			// ── 2. Top Categories Contribution (doughnut) ──────────────────────────
+			const renderTopCategories = () => {
+				const ctx = document.getElementById('topCategoriesChart');
+				if (!ctx) return;
+				if (topCategoriesChart) topCategoriesChart.destroy();
+
+				const sorted = [...data.value.category_dist].sort((a, b) => b.total - a.total);
+				if (!sorted.length) return;
+
+				topCategoriesChart = new Chart(ctx, {
+					type: 'doughnut',
+					data: {
+						labels: sorted.map(s => s.category),
+						datasets: [{
+							data: sorted.map(s => s.total),
+							backgroundColor: PALETTE.slice(0, sorted.length),
+							borderWidth: 2,
+							borderColor: '#FFFFFF',
+							hoverOffset: 8
+						}]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: false,
+						cutout: '60%',
+						plugins: {
+							legend: {
+								position: 'bottom',
+								...commonLegend
+							},
+							tooltip: {
+								...commonTooltip,
+								callbacks: {
+									label: ctx => ` ${ctx.label}: $${parseFloat(ctx.raw).toFixed(2)}`
+								}
+							}
+						}
+					}
+				});
+			};
+
+			// ── 3. Expense By Category (horizontal bar) ────────────────────────────
+			const renderCategoryBar = () => {
+				const ctx = document.getElementById('categoryDistChart');
+				if (!ctx) return;
+				if (categoryDistChart) categoryDistChart.destroy();
+
+				const cats = data.value.category_dist;
+				if (!cats.length) return;
+
+				categoryDistChart = new Chart(ctx, {
+					type: 'bar',
+					data: {
+						labels: cats.map(c => c.category),
+						datasets: [
+							{
+								label: 'Total ($)',
+								data: cats.map(c => c.total),
+								backgroundColor: cats.map((_, i) => PALETTE[i % PALETTE.length]),
+								borderRadius: 6,
+								borderSkipped: false
+							},
+							{
+								label: 'Claims Count',
+								data: cats.map(c => c.count),
+								backgroundColor: cats.map((_, i) => PALETTE_LIGHT[i % PALETTE_LIGHT.length]),
+								borderRadius: 6,
+								borderSkipped: false,
+								yAxisID: 'y2'
+							}
+						]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: false,
+						interaction: { mode: 'index', intersect: false },
+						plugins: {
+							legend: { display: true, ...commonLegend },
+							tooltip: {
+								...commonTooltip,
+								callbacks: {
+									label: ctx => ctx.datasetIndex === 0
+										? ` Total: $${parseFloat(ctx.raw).toFixed(2)}`
+										: ` Claims: ${ctx.raw}`
+								}
+							}
+						},
+						scales: {
+							x: commonScales.x,
+							y: {
+								...commonScales.y,
+								position: 'left',
+								title: { display: true, text: 'Amount ($)', color: '#64748B', font: { size: 10 } }
+							},
+							y2: {
+								ticks: { color: '#64748B', font: { size: 11 } },
+								grid: { drawOnChartArea: false },
+								beginAtZero: true,
+								position: 'right',
+								title: { display: true, text: 'No. of Claims', color: '#64748B', font: { size: 10 } }
+							}
+						}
+					}
+				});
+			};
+
+			// ── 4. Expense By Employee (grouped bar) ───────────────────────────────
+			const renderEmployeeBar = () => {
+				const ctx = document.getElementById('employeeSpentChart');
+				if (!ctx) return;
+				if (employeeSpentChart) employeeSpentChart.destroy();
+
+				const stats = data.value.employee_stats;
+				if (!stats.length) return;
+
+				employeeSpentChart = new Chart(ctx, {
+					type: 'bar',
+					data: {
+						labels: stats.map(e => e.employee_name),
+						datasets: [
+							{
+								label: 'Gross Submitted ($)',
+								data: stats.map(e => e.total),
+								backgroundColor: 'rgba(17,78,255,0.20)',
+								borderColor: '#114EFF',
+								borderWidth: 1.5,
+								borderRadius: 6,
+								borderSkipped: false
+							},
+							{
+								label: 'Approved ($)',
+								data: stats.map(e => e.approved),
+								backgroundColor: '#14F1B1',
+								borderColor: '#0fd49d',
+								borderWidth: 1.5,
+								borderRadius: 6,
+								borderSkipped: false
+							}
+						]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: false,
+						interaction: { mode: 'index', intersect: false },
+						plugins: {
+							legend: { display: true, ...commonLegend },
+							tooltip: commonTooltip
+						},
+						scales: commonScales
+					}
+				});
+			};
+
+			const exportCSV = () => {
+				let csv = "data:text/csv;charset=utf-8,Employee,Email,Claims,Approved ($),Gross ($)\n";
+				data.value.employee_stats.forEach(s => {
+					csv += `"${s.employee_name}",${s.submitted_by},${s.count},${s.approved},${s.total}\n`;
+				});
+				const link = document.createElement('a');
+				link.setAttribute('href', encodeURI(csv));
+				link.setAttribute('download', `expense_report_${Date.now()}.csv`);
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				base.showToast('Report exported as CSV', 'success');
+			};
+
+			onMounted(() => {
+				const interval = setInterval(() => {
+					if (base.booted.value) {
+						clearInterval(interval);
+						fetchReportsData();
+						fetchEmployeesDropdown();
+					}
+				}, 50);
+			});
+
+			return {
+				...base,
+				loading,
+				data,
+				categories,
+				employees,
+				filters,
+				fetchReportsData,
+				exportCSV,
+				formatAmount
+			};
+		}
+	});
+	registerVueError(app);
+	app.mount('#app');
+</script>
+{% endblock %}

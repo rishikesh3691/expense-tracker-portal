@@ -1,0 +1,315 @@
+{% extends "templates/pages/portal_base.html" %}
+
+{% block title %}Employees - Expense Tracker Portal{% endblock %}
+
+{% block content %}
+{% raw %}
+<div class="space-y-6">
+	<!-- Header Action Bar -->
+	<div class="flex items-center justify-between glass-panel p-4 rounded-2xl">
+		<div class="flex items-center gap-3">
+			<h3 class="font-bold text-base text-slate-800">Expense Active Personnel</h3>
+			<span class="px-2.5 py-0.5 rounded-full text-xs bg-brightBlue/15 text-brightBlue font-bold">{{
+				employees.length }} Members</span>
+		</div>
+		<button @click="openCreateModal"
+			class="px-4 py-2 rounded-xl btn-gradient text-[#0A194F] font-bold text-sm flex items-center gap-1.5 shadow-lg">
+			<i data-lucide="user-plus" class="w-4 h-4 text-[#0A194F]"></i>
+			<span>Add Employee</span>
+		</button>
+	</div>
+
+	<!-- Employees Table -->
+	<div class="glass-panel rounded-2xl overflow-hidden relative min-h-[250px]">
+		<!-- Loading State -->
+		<div v-if="loading" class="absolute inset-0 bg-white/50 flex flex-col items-center justify-center z-10">
+			<div class="w-10 h-10 border-4 border-brightBlue/20 border-t-brightBlue animate-spin rounded-full mb-3">
+			</div>
+			<span class="text-sm text-slate-500">Fetching employee roster...</span>
+		</div>
+
+		<div v-else-if="employees.length === 0" class="py-20 text-center text-slate-500">
+			<i data-lucide="users" class="w-16 h-16 mx-auto mb-4 opacity-40"></i>
+			<h3 class="text-lg font-bold text-slate-800">No Employees Defined</h3>
+			<p class="text-sm">Click "Add Employee" above to enroll members.</p>
+		</div>
+
+		<div v-else class="overflow-x-auto">
+			<table class="w-full text-left text-sm border-collapse">
+				<thead>
+					<tr
+						class="border-b border-slate-200 text-slate-500 text-xs font-semibold uppercase tracking-wider bg-slate-50">
+						<th class="py-4 px-6">Name</th>
+						<th class="py-4 px-6">Email</th>
+						<th class="py-4 px-6">Department</th>
+						<th class="py-4 px-6">Designation</th>
+						<th class="py-4 px-6">Status</th>
+						<th class="py-4 px-6 text-right">Actions</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-slate-100">
+					<tr v-for="emp in employees" :key="emp.name"
+						class="hover:bg-slate-50/80 transition border-b border-slate-100">
+						<td class="py-4 px-6 font-semibold text-slate-800">{{ emp.employee_name }}</td>
+						<td class="py-4 px-6 font-mono text-xs text-slate-500">{{ emp.user }}</td>
+						<td class="py-4 px-6 text-slate-600">{{ emp.department || '-' }}</td>
+						<td class="py-4 px-6 text-slate-600">{{ emp.designation || '-' }}</td>
+						<td class="py-4 px-6">
+							<span
+								class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border cursor-pointer select-none"
+								@click="toggleEmployeeStatus(emp)"
+								:class="emp.status === 'Active' 
+								  	? 'bg-emerald-50 border-emerald-250 text-emerald-700 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600' 
+								  	: 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700'">
+								{{ emp.status }}
+							</span>
+						</td>
+						<td class="py-4 px-6 text-right">
+							<div class="flex items-center justify-end gap-2.5">
+								<button @click="openEditModal(emp)" title="Edit Employee"
+									class="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center hover:border-brightBlue hover:bg-brightBlue/10 transition">
+									<i data-lucide="edit" class="w-4 h-4 text-slate-500 hover:text-brightBlue"></i>
+								</button>
+								<button @click="deleteEmployee(emp.user)" title="Delete Employee"
+									class="w-8 h-8 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center hover:border-rose-500/40 hover:bg-rose-500/20 transition text-rose-700">
+									<i data-lucide="trash-2" class="w-4 h-4 text-rose-700"></i>
+								</button>
+							</div>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<!-- Add/Edit Employee Modal -->
+	<div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+		<div class="w-full max-w-md glass-panel rounded-2xl p-6 space-y-6 shadow-2xl">
+			<div class="flex items-center justify-between border-b border-slate-100 pb-4">
+				<h3 class="font-bold text-lg text-slate-800">{{ modalMode }} Employee Profile</h3>
+				<button @click="showModal = false" class="text-slate-400 hover:text-slate-800 text-xl">&times;</button>
+			</div>
+
+			<form @submit.prevent="saveEmployee" class="space-y-4">
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">User Email
+						*</label>
+					<input type="email" v-model="form.email" required :disabled="modalMode === 'Modify'"
+						placeholder="e.g. employee@company.com"
+						class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition disabled:opacity-50">
+				</div>
+
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Full Name
+						*</label>
+					<input type="text" v-model="form.employee_name" required placeholder="e.g. Jane Smith"
+						class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label
+							class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Department</label>
+						<input type="text" v-model="form.department" placeholder="e.g. Marketing"
+							class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+					</div>
+					<div>
+						<label
+							class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Designation</label>
+						<input type="text" v-model="form.designation" placeholder="e.g. Director"
+							class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+					</div>
+				</div>
+
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Phone
+						Number</label>
+					<input type="text" v-model="form.phone" placeholder="e.g. +1 555 1234"
+						class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Status
+						*</label>
+					<select v-model="form.status" required
+						class="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-brightBlue transition">
+						<option value="Active">Active</option>
+						<option value="Inactive">Inactive</option>
+					</select>
+				</div>
+
+				<div class="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+					<button type="button" @click="showModal = false"
+						class="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:border-slate-350 text-sm font-semibold text-slate-700 transition">
+						Cancel
+					</button>
+					<button type="submit"
+						class="px-5 py-2 rounded-xl bg-brightBlue hover:bg-brightBlue/90 text-white text-sm font-bold transition">
+						{{ modalMode === 'Create' ? 'Enroll' : 'Save Changes' }}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+{% endraw %}
+{% endblock %}
+
+{% block script %}
+<script>
+	const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+
+	const app = createApp({
+		setup() {
+			const base = usePortalBase('/portal/employees', 'Employees', 'Manage portal employees.');
+			const loading = ref(true);
+			const employees = ref([]);
+			const showModal = ref(false);
+			const modalMode = ref('Create');
+
+			const form = reactive({
+				email: '',
+				employee_name: '',
+				department: '',
+				designation: '',
+				phone: '',
+				status: 'Active'
+			});
+
+			const fetchEmployees = async () => {
+				loading.value = true;
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.get_employees', {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await response.json();
+					if (data.message) {
+						employees.value = data.message;
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				} finally {
+					loading.value = false;
+					nextTick(() => { lucide.createIcons(); });
+				}
+			};
+
+			const openCreateModal = () => {
+				modalMode.value = 'Create';
+				Object.assign(form, {
+					email: '',
+					employee_name: '',
+					department: '',
+					designation: '',
+					phone: '',
+					status: 'Active'
+				});
+				showModal.value = true;
+			};
+
+			const openEditModal = (emp) => {
+				modalMode.value = 'Modify';
+				Object.assign(form, {
+					email: emp.user,
+					employee_name: emp.employee_name,
+					department: emp.department || '',
+					designation: emp.designation || '',
+					phone: emp.phone || '',
+					status: emp.status
+				});
+				showModal.value = true;
+			};
+
+			const saveEmployee = async () => {
+				const apiPath = modalMode.value === 'Create' ? 'create_employee' : 'update_employee';
+				try {
+					const response = await fetch(`/api/method/expense_tracker.api.${apiPath}`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify(form)
+					});
+					const data = await response.json();
+					if (data.message) {
+						base.showToast(`Employee ${modalMode.value === 'Create' ? 'added' : 'updated'} successfully`, 'success');
+						showModal.value = false;
+						fetchEmployees();
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				}
+			};
+
+			const toggleEmployeeStatus = async (emp) => {
+				const apiPath = emp.status === 'Active' ? 'deactivate_employee' : 'activate_employee';
+				const newStatus = emp.status === 'Active' ? 'Inactive' : 'Active';
+				try {
+					const response = await fetch(`/api/method/expense_tracker.api.${apiPath}`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify({ email: emp.user })
+					});
+					const data = await response.json();
+					if (data.message && data.message.status === 'success') {
+						emp.status = newStatus;
+						base.showToast(`Employee status set to ${newStatus}`, 'success');
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				}
+			};
+
+			const deleteEmployee = async (email) => {
+				if (!confirm(`Are you sure you want to remove employee ${email}? This will disable their account login.`)) return;
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.delete_employee', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify({ email })
+					});
+					const data = await response.json();
+					if (data.message && data.message.status === 'success') {
+						base.showToast('Employee record removed', 'success');
+						fetchEmployees();
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				}
+			};
+
+			onMounted(() => {
+				const interval = setInterval(() => {
+					if (base.booted.value) {
+						clearInterval(interval);
+						fetchEmployees();
+					}
+				}, 50);
+			});
+
+			return {
+				...base,
+				loading,
+				employees,
+				showModal,
+				modalMode,
+				form,
+				openCreateModal,
+				openEditModal,
+				saveEmployee,
+				toggleEmployeeStatus,
+				deleteEmployee
+			};
+		}
+	});
+	registerVueError(app);
+	app.mount('#app');
+</script>
+{% endblock %}

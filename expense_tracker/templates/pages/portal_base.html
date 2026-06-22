@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<script>
+		window.onerror = function(message, source, lineno, colno, error) {
+			var div = document.createElement('div');
+			div.style.position = 'fixed';
+			div.style.bottom = '0';
+			div.style.left = '0';
+			div.style.right = '0';
+			div.style.backgroundColor = '#EF4444';
+			div.style.color = '#FFFFFF';
+			div.style.padding = '16px';
+			div.style.zIndex = '999999';
+			div.style.fontSize = '14px';
+			div.style.fontFamily = 'monospace';
+			div.style.borderTop = '4px solid #B91C1C';
+			div.innerText = 'JS Error: ' + message + ' at ' + source + ':' + lineno + ':' + colno;
+			document.body.appendChild(div);
+			return false;
+		};
+	</script>
+	<title>{% block title %}Expense Tracker Portal{% endblock %}</title>
+	<!-- Google Fonts: DM Sans -->
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
+	<!-- Tailwind CSS CDN -->
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script>
+		tailwind.config = {
+			theme: {
+				extend: {
+					colors: {
+						navyDark: '#05133C',
+						navyBase: '#091526',
+						mintGreen: '#14F1B1',
+						brightBlue: '#114EFF',
+						grayLight: '#F4F4F5',
+						grayText: '#71717B'
+					},
+					fontFamily: {
+						sans: ['DM Sans', 'sans-serif']
+					}
+				}
+			}
+		}
+	</script>
+	<!-- Chart.js CDN -->
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<!-- Lucide Icons CDN -->
+	<script src="https://unpkg.com/lucide@latest"></script>
+	<!-- Vue 3 CDN -->
+	<script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
+	<style>
+		body {
+			background-color: #F8FAFC;
+			color: #1E293B;
+			font-family: 'DM Sans', sans-serif;
+		}
+		
+		::-webkit-scrollbar {
+			width: 6px;
+			height: 6px;
+		}
+		::-webkit-scrollbar-track {
+			background: #F1F5F9;
+		}
+		::-webkit-scrollbar-thumb {
+			background: #CBD5E1;
+			border-radius: 3px;
+		}
+		::-webkit-scrollbar-thumb:hover {
+			background: #94A3B8;
+		}
+
+		.glass-panel {
+			background: #FFFFFF;
+			border: 1px solid #E2E8F0;
+			box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+		}
+
+		.glass-card {
+			background: #FFFFFF;
+			border: 1px solid #E2E8F0;
+			box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+
+		.glass-card:hover {
+			border-color: #CBD5E1;
+			box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+			transform: translateY(-2px);
+		}
+
+		.btn-gradient {
+			background: linear-gradient(90deg, #14F1B1 0%, #114EFF 100%);
+			transition: all 0.3s ease;
+		}
+		.btn-gradient:hover {
+			opacity: 0.95;
+			transform: scale(1.02);
+		}
+
+		.progress-gradient {
+			background: linear-gradient(90deg, #14F1B1 0%, #114EFF 50%, #E2E8F0 100%);
+		}
+
+		.active-tab-gradient {
+			background: linear-gradient(90deg, #14F1B1 0%, #114EFF 100%);
+		}
+
+		.text-gradient {
+			background: linear-gradient(90deg, #14F1B1 0%, #114EFF 100%);
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+
+		[v-cloak] {
+			display: none !important;
+		}
+	</style>
+	{% block head %}{% endblock %}
+</head>
+<body class="h-full flex overflow-hidden">
+
+	<div id="app" class="h-full w-full flex flex-col md:flex-row overflow-hidden" v-cloak>
+		<!-- Toast Notification System -->
+		<div class="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none">
+			<div v-for="toast in toasts" :key="toast.id" 
+				 class="flex items-center gap-3 p-4 rounded-xl shadow-2xl border pointer-events-auto transition-all duration-300 transform translate-y-0 bg-[#0A194F]"
+				 :class="{
+				 	'border-emerald-500/40 text-emerald-300': toast.type === 'success',
+				 	'border-rose-500/40 text-rose-300': toast.type === 'error',
+				 	'border-amber-500/40 text-amber-300': toast.type === 'warning'
+				 }">
+				{% raw %}<span class="font-medium text-sm">{{ toast.message }}</span>{% endraw %}
+				<button @click="removeToast(toast.id)" class="text-xs opacity-75 hover:opacity-100">&times;</button>
+			</div>
+		</div>
+
+		<!-- Unauthorized State -->
+		<div v-if="unauthorized" class="flex-1 flex flex-col items-center justify-center p-6 text-center">
+			<div class="max-w-md glass-panel p-8 rounded-2xl flex flex-col items-center">
+				<div class="w-16 h-16 rounded-full bg-rose-500/20 border border-rose-500/30 flex items-center justify-center mb-6">
+					<i data-lucide="shield-alert" class="w-8 h-8 text-rose-400"></i>
+				</div>
+				<h1 class="text-2xl font-bold mb-3 text-slate-800">Unauthorized Access</h1>
+				<p class="text-slate-500 mb-6">
+					Your account does not have the roles required to access the Expense Tracker Portal. Please contact your system administrator to assign either <strong>Expense Admin</strong> or <strong>Expense Employee</strong> roles.
+				</p>
+				<a href="/login" class="px-6 py-2.5 rounded-xl bg-brightBlue hover:bg-brightBlue/90 text-white font-medium transition duration-300">
+					Back to Login
+				</a>
+			</div>
+		</div>
+
+		<!-- Main Workspace Layout -->
+		<template v-else-if="booted">
+			<!-- Sidebar -->
+			<aside class="w-full md:w-[280px] bg-[#0A194F] flex-shrink-0 flex flex-col border-b md:border-b-0 md:border-r border-white/5 relative z-20">
+				<!-- Brand Header -->
+				<div class="h-20 flex items-center px-6 border-b border-white/5">
+					<div class="flex items-center gap-3">
+						<div class="w-10 h-10 rounded-xl btn-gradient flex items-center justify-center">
+							<i data-lucide="wallet" class="w-5 h-5 text-navyDark"></i>
+						</div>
+						<div>
+							<h2 class="font-bold text-base tracking-wide leading-none text-white">BizAxl</h2>
+							<span class="text-[10px] text-mintGreen uppercase tracking-widest font-semibold">Expense Tracker</span>
+						</div>
+					</div>
+				</div>
+
+				<!-- Navigation -->
+				<nav class="flex-1 overflow-y-auto p-4 space-y-1">
+					<a v-for="item in sidebarMenu" :key="item.path" :href="item.path"
+					   class="flex items-center gap-3 px-4 py-3 rounded-xl transition duration-300 group font-bold text-sm"
+					   :class="[
+					   	currentPath === item.path 
+					   		? 'bg-mintGreen text-[#0A194F] shadow-lg shadow-mintGreen/20' 
+					   		: 'text-gray-400 hover:text-white hover:bg-white/5'
+					   ]">
+						<i :data-lucide="item.icon" class="w-5 h-5"
+						   :class="currentPath === item.path ? 'text-[#0A194F]' : 'text-gray-400 group-hover:text-white'"></i>
+						{% raw %}<span>{{ item.label }}</span>{% endraw %}
+					</a>
+				</nav>
+
+				<!-- Help Section inside Sidebar -->
+				<div class="p-4 mx-4 mb-4 rounded-2xl bg-white/5 border border-white/5 space-y-2 hidden md:block">
+					<h5 class="text-xs font-semibold text-mintGreen flex items-center gap-1.5">
+						<i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+						<span>Need Help?</span>
+					</h5>
+					<p class="text-[10px] text-gray-400 leading-relaxed">Contact portal administration at support@company.com or review instructions.</p>
+				</div>
+
+				<!-- User Profile Footer -->
+				<div class="p-4 border-t border-white/5 bg-black/15">
+					<div class="flex items-center gap-3 mb-3">
+						<div class="w-10 h-10 rounded-full bg-white/10 overflow-hidden border border-white/10">
+							<img v-if="user.user_image" :src="user.user_image" alt="Profile" class="w-full h-full object-cover">
+							<div v-else class="w-full h-full flex items-center justify-center bg-brightBlue/20 text-brightBlue text-sm font-bold">
+								{% raw %}{{ (user.full_name || '').charAt(0).toUpperCase() }}{% endraw %}
+							</div>
+						</div>
+						<div class="overflow-hidden">
+							{% raw %}<h4 class="font-semibold text-sm truncate leading-none mb-1 text-white">{{ user.full_name }}</h4>{% endraw %}
+							{% raw %}<span class="text-xs text-gray-400 truncate block">{{ user.is_admin ? 'Expense Admin' : 'Expense Employee' }}</span>{% endraw %}
+						</div>
+					</div>
+					<button @click="logout" class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-white/10 hover:border-rose-500/30 hover:bg-rose-500/10 text-xs text-gray-400 hover:text-rose-400 transition duration-300 font-semibold">
+						<i data-lucide="log-out" class="w-4 h-4"></i>
+						<span>Sign Out</span>
+					</button>
+				</div>
+			</aside>
+
+			<!-- Content Area -->
+			<main class="flex-1 flex flex-col overflow-hidden bg-[#F8FAFC] relative z-10">
+				<!-- Header / Topbar (Glassmorphic) -->
+				<header class="h-20 flex items-center justify-between px-8 border-b border-slate-200 flex-shrink-0 bg-white">
+					<div>
+						{% raw %}<h1 class="text-xl font-bold leading-none mb-1 text-slate-800">{{ currentViewTitle }}</h1>{% endraw %}
+						{% raw %}<p class="text-xs text-slate-500">{{ currentViewSubtitle }}</p>{% endraw %}
+					</div>
+					<div class="flex items-center gap-4">
+						<div class="text-right hidden sm:block">
+							<span class="text-xs text-slate-400 block font-medium">Workspace</span>
+							<span class="text-sm font-bold text-brightBlue">expense.localhost</span>
+						</div>
+						<div class="w-[1px] h-8 bg-slate-200 hidden sm:block"></div>
+						<a href="/portal/settings" class="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center hover:border-brightBlue/50 hover:bg-slate-100 transition duration-300">
+							<i data-lucide="settings" class="w-5 h-5 text-slate-500 hover:text-brightBlue"></i>
+						</a>
+					</div>
+				</header>
+
+				<!-- Router View Page Content -->
+				<div class="flex-1 overflow-y-auto p-8">
+					{% block content %}{% endblock %}
+				</div>
+			</main>
+		</template>
+	</div>
+
+	<!-- Pass basic variables -->
+	<script>
+		window.userEmail = "{{ user_email or '' }}";
+		window.userFullName = "{{ user_full_name or '' }}";
+		window.isAdmin = {{ 'true' if is_admin else 'false' }};
+		window.isEmployee = {{ 'true' if is_employee else 'false' }};
+		window.csrfToken = "{{ frappe.session.csrf_token or '' }}";
+		window.unauthorized = {{ 'true' if unauthorized else 'false' }};
+		
+		// Helper functions
+		function formatAmount(val) {
+			const num = parseFloat(val);
+			return isNaN(num) ? '0.00' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+		}
+		function formatDateString(val) {
+			if (!val) return '-';
+			const date = new Date(val);
+			return isNaN(date.getTime()) ? val : date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+		}
+
+		// Composable layout code
+		function usePortalBase(viewPath, viewTitle, viewSubtitle) {
+			const booted = Vue.ref(false);
+			const unauthorized = Vue.ref(window.unauthorized);
+			const toasts = Vue.ref([]);
+			const user = Vue.reactive({
+				email: window.userEmail || '',
+				full_name: window.userFullName || '',
+				is_admin: !!window.isAdmin,
+				is_employee: !!window.isEmployee,
+				user_image: null
+			});
+			
+			const currentPath = Vue.ref(viewPath);
+			const currentViewTitle = Vue.ref(viewTitle);
+			const currentViewSubtitle = Vue.ref(viewSubtitle);
+			
+			const sidebarMenu = Vue.computed(() => {
+				if (user.is_admin) {
+					return [
+						{ path: '/portal/dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+						{ path: '/portal/bills', label: 'Bills', icon: 'file-text' },
+						{ path: '/portal/add-bill', label: 'Add Bill', icon: 'plus-circle' },
+						{ path: '/portal/employees', label: 'Employees', icon: 'users' },
+						{ path: '/portal/reports', label: 'Reports', icon: 'sheet' },
+						{ path: '/portal/settings', label: 'Settings', icon: 'settings' }
+					];
+				} else {
+					return [
+						{ path: '/portal/dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+						{ path: '/portal/bills', label: 'My Bills', icon: 'file-text' },
+						{ path: '/portal/add-bill', label: 'Add Bill', icon: 'plus-circle' },
+						{ path: '/portal/settings', label: 'Profile', icon: 'user' }
+					];
+				}
+			});
+			
+			const showToast = (message, type = 'success') => {
+				const id = Date.now();
+				toasts.value.push({ id, message, type });
+				setTimeout(() => {
+					removeToast(id);
+				}, 4000);
+			};
+
+			const removeToast = (id) => {
+				toasts.value = toasts.value.filter(t => t.id !== id);
+			};
+
+			const logout = async () => {
+				try {
+					await fetch('/api/method/logout', {
+						method: 'POST',
+						headers: {
+							'X-Frappe-CSRF-Token': window.csrfToken,
+							'Content-Type': 'application/json'
+						}
+					});
+				} catch (e) {
+					// Even if the fetch fails, still redirect to login
+				} finally {
+					window.location.href = '/login';
+				}
+			};
+
+			const fetchUserData = async () => {
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.get_settings', {
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken }
+					});
+					const data = await response.json();
+					if (data.message) {
+						const m = data.message;
+						user.full_name = m.full_name;
+						user.user_image = m.user_image;
+						user.is_admin = m.is_admin;
+					}
+				} catch (e) {
+					console.error("Failed to sync user data: " + e.message);
+				}
+			};
+
+			Vue.onMounted(async () => {
+				if (!unauthorized.value) {
+					await fetchUserData();
+					booted.value = true;
+					Vue.nextTick(() => { 
+						lucide.createIcons();
+					});
+				}
+			});
+
+			return {
+				booted,
+				unauthorized,
+				toasts,
+				user,
+				currentPath,
+				currentViewTitle,
+				currentViewSubtitle,
+				sidebarMenu,
+				showToast,
+				removeToast,
+				logout,
+				fetchUserData
+			};
+		}
+
+		// Vue global error handler registration
+		function registerVueError(app) {
+			app.config.errorHandler = function(err, vm, info) {
+				console.error("Vue Error Captured:", err);
+				var div = document.createElement('div');
+				div.style.position = 'fixed';
+				div.style.bottom = '0';
+				div.style.left = '0';
+				div.style.right = '0';
+				div.style.backgroundColor = '#EF4444';
+				div.style.color = '#FFFFFF';
+				div.style.padding = '16px';
+				div.style.zIndex = '999999';
+				div.style.fontSize = '14px';
+				div.style.fontFamily = 'monospace';
+				div.style.borderTop = '4px solid #B91C1C';
+				div.innerText = 'Vue Error: ' + err.message + '\nStack: ' + err.stack;
+				document.body.appendChild(div);
+			};
+		}
+	</script>
+	{% block script %}{% endblock %}
+</body>
+</html>

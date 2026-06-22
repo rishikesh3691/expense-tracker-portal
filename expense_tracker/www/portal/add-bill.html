@@ -1,0 +1,193 @@
+{% extends "templates/pages/portal_base.html" %}
+
+{% block title %}Add Bill - Expense Tracker Portal{% endblock %}
+
+{% block content %}
+{% raw %}
+<div class="max-w-2xl mx-auto">
+	<div class="glass-panel p-8 rounded-3xl relative overflow-hidden">
+		<h2 class="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
+			<span class="w-8 h-8 rounded-lg bg-mintGreen/10 flex items-center justify-center">
+				<i data-lucide="plus-circle" class="w-4 h-4 text-[#0A194F]"></i>
+			</span>
+			<span>Submit New Expense Claim</span>
+		</h2>
+
+		<form @submit.prevent="submitBill" class="space-y-6">
+			<div>
+				<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Bill Title *</label>
+				<input type="text" v-model="form.bill_title" required placeholder="e.g. AWS Cloud Server Subscription June" 
+					   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+			</div>
+
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Claim Amount ($) *</label>
+					<input type="number" step="0.01" min="0.01" v-model="form.amount" required placeholder="0.00" 
+						   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition">
+				</div>
+				<div>
+					<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Category *</label>
+					<select v-model="form.category" required 
+							class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 focus:outline-none focus:border-brightBlue transition">
+						<option value="" disabled>Select category</option>
+						<option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+					</select>
+				</div>
+			</div>
+
+			<div>
+				<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Bill Date *</label>
+				<input type="date" v-model="form.bill_date" required 
+					   class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 focus:outline-none focus:border-brightBlue transition">
+			</div>
+
+			<div>
+				<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Description / Business Purpose</label>
+				<textarea v-model="form.description" rows="4" placeholder="Describe the business justification for this expense claim..." 
+						  class="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-brightBlue transition"></textarea>
+			</div>
+
+			<!-- Receipt Upload -->
+			<div>
+				<label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Receipt Attachment / Proof Image</label>
+				<div class="border-2 border-dashed border-slate-200 bg-slate-50 rounded-2xl p-6 flex flex-col items-center justify-center hover:border-brightBlue/50 transition relative group cursor-pointer">
+					<input type="file" @change="uploadReceiptImage" accept="image/*" 
+						   class="absolute inset-0 opacity-0 cursor-pointer">
+					
+					<template v-if="uploading">
+						<div class="w-8 h-8 border-2 border-mintGreen/20 border-t-[#0A194F] animate-spin rounded-full mb-2"></div>
+						<span class="text-xs text-slate-500 font-medium">Uploading receipt image...</span>
+					</template>
+					<template v-else-if="form.receipt_image">
+						<img :src="form.receipt_image" class="w-24 h-24 object-cover rounded-xl border border-slate-200 mb-2">
+						<span class="text-xs text-emerald-600 font-bold">Receipt Uploaded! Click or Drag to replace.</span>
+					</template>
+					<template v-else>
+						<i data-lucide="cloud-upload" class="w-8 h-8 text-slate-400 group-hover:text-brightBlue transition mb-2"></i>
+						<span class="text-xs font-semibold text-slate-650">Click or Drag & Drop receipt photo</span>
+						<span class="text-[10px] text-slate-400 mt-1">Accepts images (PNG, JPG, WEBP)</span>
+					</template>
+				</div>
+			</div>
+
+			<div class="flex items-center justify-end gap-4 border-t border-slate-100 pt-6">
+				<button type="button" @click="resetForm" class="px-5 py-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 text-sm font-semibold text-slate-700 transition">
+					Reset
+				</button>
+				<a href="/portal/dashboard" class="px-5 py-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 text-sm font-semibold text-slate-700 transition flex items-center justify-center">
+					Cancel
+				</a>
+				<button type="submit" :disabled="submitting" 
+						class="px-6 py-3 rounded-xl btn-gradient text-[#0A194F] font-extrabold text-sm flex items-center gap-2 disabled:opacity-50">
+					<i data-lucide="send" class="w-4 h-4 text-[#0A194F]" v-if="!submitting"></i>
+					<div class="w-4 h-4 border-2 border-[#0A194F]/20 border-t-[#0A194F] animate-spin rounded-full" v-else></div>
+					<span>{{ submitting ? 'Saving...' : 'Save' }}</span>
+				</button>
+			</div>
+		</form>
+	</div>
+</div>
+{% endraw %}
+{% endblock %}
+
+{% block script %}
+<script>
+	const { createApp, ref, reactive, onMounted } = Vue;
+
+	const app = createApp({
+		setup() {
+			const base = usePortalBase('/portal/add-bill', 'Add Bill', 'Submit a new bill.');
+			const categories = ['Travel', 'Food', 'Office', 'Medical', 'Internet', 'Training', 'Other'];
+			const submitting = ref(false);
+			const uploading = ref(false);
+			
+			const form = reactive({
+				bill_title: '',
+				amount: '',
+				category: '',
+				bill_date: new Date().toISOString().substring(0, 10),
+				description: '',
+				receipt_image: ''
+			});
+
+			const uploadReceiptImage = async (e) => {
+				const file = e.target.files[0];
+				if (!file) return;
+
+				uploading.value = true;
+				const formData = new FormData();
+				formData.append('file', file);
+				formData.append('is_private', 0);
+
+				try {
+					const res = await fetch('/api/method/upload_file', {
+						method: 'POST',
+						headers: { 'X-Frappe-CSRF-Token': window.csrfToken },
+						body: formData
+					});
+					const data = await res.json();
+					if (data.message && data.message.file_url) {
+						form.receipt_image = data.message.file_url;
+						base.showToast('File uploaded successfully', 'success');
+					} else {
+						base.showToast('File upload failed', 'error');
+					}
+				} catch (err) {
+					base.showToast(err.message, 'error');
+				} finally {
+					uploading.value = false;
+				}
+			};
+
+			const submitBill = async () => {
+				submitting.value = true;
+				try {
+					const response = await fetch('/api/method/expense_tracker.api.create_bill', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Frappe-CSRF-Token': window.csrfToken
+						},
+						body: JSON.stringify(form)
+					});
+					const data = await response.json();
+					if (data.message) {
+						base.showToast('Expense claim saved successfully', 'success');
+						resetForm();
+						setTimeout(() => {
+							window.location.href = '/portal/bills';
+						}, 1000);
+					}
+				} catch (e) {
+					base.showToast(e.message, 'error');
+				} finally {
+					submitting.value = false;
+				}
+			};
+
+			const resetForm = () => {
+				form.bill_title = '';
+				form.amount = '';
+				form.category = '';
+				form.bill_date = new Date().toISOString().substring(0, 10);
+				form.description = '';
+				form.receipt_image = '';
+			};
+
+			return {
+				...base,
+				categories,
+				form,
+				submitting,
+				uploading,
+				uploadReceiptImage,
+				submitBill,
+				resetForm
+			};
+		}
+	});
+	registerVueError(app);
+	app.mount('#app');
+</script>
+{% endblock %}
