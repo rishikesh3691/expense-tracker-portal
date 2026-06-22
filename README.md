@@ -1,4 +1,4 @@
-# Bizaxl Expense Tracker Portal
+# Expense Tracker Portal
 
 A modern, dynamic, and premium-designed **Expense Tracker Portal** built on the Frappe framework. The application provides a sleek light-theme interface for both administrators and employees to manage claims, visualize trends, register active personnel, and track spending categories.
 
